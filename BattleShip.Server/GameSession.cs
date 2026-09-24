@@ -28,8 +28,10 @@ public class GameSession
     private GridModel GridOf(string connectionId) =>
         connectionId == PlayerAConnectionId ? GridA : GridB;
     
-    public bool TryFireShot(string shooterConnectionId, int x, int y)
+    public bool TryFireShot(string shooterConnectionId, int x, int y, out bool isHit)
     {
+        isHit = false;
+
         lock (_lock)
         {
             if (shooterConnectionId != CurrentTurnConnectionId) return false;
@@ -37,6 +39,7 @@ public class GameSession
 
             var defenderId = OpponentOf(shooterConnectionId);
             var defenderGrid = GridOf(defenderId);
+            isHit = defenderGrid.GetCell(x, y) == CellState.Ship;
 
             if (!defenderGrid.TryMarkFired(x, y)) return false;
 

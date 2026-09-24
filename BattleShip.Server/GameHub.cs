@@ -36,16 +36,16 @@ public class GameHub : Hub
     {
         if (!SessionManager.Instance.TryGetSession(Context.ConnectionId, out var session) || session is null) return;
 
-        bool success = session.TryFireShot(Context.ConnectionId, request.X, request.Y);
+        bool success = session.TryFireShot(Context.ConnectionId, request.X, request.Y, out bool isHit);
         if (!success) return; // Invalid move
 
         var opponentId = session.OpponentOf(Context.ConnectionId);
 
         await Clients.Client(Context.ConnectionId)
-            .SendAsync("ShotResult", new ShotResultMessage(Context.ConnectionId, request.X, request.Y, IsYourTurnNext: false));
+            .SendAsync("ShotResult", new ShotResultMessage(Context.ConnectionId, request.X, request.Y, isHit, IsYourTurnNext: false));
 
         await Clients.Client(opponentId)
-            .SendAsync("ShotResult", new ShotResultMessage(Context.ConnectionId, request.X, request.Y, IsYourTurnNext: true));
+            .SendAsync("ShotResult", new ShotResultMessage(Context.ConnectionId, request.X, request.Y, isHit, IsYourTurnNext: true));
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)

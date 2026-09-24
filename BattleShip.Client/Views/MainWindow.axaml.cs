@@ -12,6 +12,7 @@ public partial class MainWindow : Window
     private const string ServerUrl = "http://localhost:5058";
 
     private readonly ConnectionService _connection = new();
+    private readonly BoardFactory _BoardFactory = new();
     private readonly Button[,] _yourButtons = new Button[GridModel.Size, GridModel.Size];
     private readonly Button[,] _enemyButtons = new Button[GridModel.Size, GridModel.Size];
 
@@ -68,7 +69,7 @@ public partial class MainWindow : Window
 
             var button = grid[msg.X, msg.Y];
             button.Content = "X";
-            button.Background = Brushes.OrangeRed;
+            button.Background = msg.IsHit ? Brushes.Red : Brushes.SteelBlue;
 
             _isMyTurn = msg.IsYourTurnNext;
             UpdateTurnText();
@@ -95,12 +96,13 @@ public partial class MainWindow : Window
         {
             for (int x = 0; x < GridModel.Size; x++)
             {
-                var yourCell = new Button { Background = Brushes.SteelBlue, IsEnabled = false, Margin = new Avalonia.Thickness(1) };
+                bool hasShip = (x + y) % 2 == 0;
+                var yourCell = _BoardFactory.CreateBoardCell(BoardCellOwner.Player, hasShip);
                 _yourButtons[x, y] = yourCell;
                 YourGrid.Children.Add(yourCell);
 
                 int capturedX = x, capturedY = y;
-                var enemyCell = new Button { Background = Brushes.DarkSlateGray, Margin = new Avalonia.Thickness(1) };
+                var enemyCell = _BoardFactory.CreateBoardCell(BoardCellOwner.Enemy, hasShip);
                 enemyCell.Click += async (_, _) => await OnEnemyCellClicked(capturedX, capturedY, enemyCell);
                 _enemyButtons[x, y] = enemyCell;
                 EnemyGrid.Children.Add(enemyCell);
