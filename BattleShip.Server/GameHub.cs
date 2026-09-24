@@ -1,76 +1,26 @@
-﻿using System.Collections.Concurrent;
-using BattleShip.Shared;
+﻿using BattleShip.Shared;
 using Microsoft.AspNetCore.SignalR;
 
 namespace BattleShip.Server;
 
 public class GameHub : Hub
 {
-    // Connection ids waiting for an opponent.
-    private static readonly ConcurrentQueue<string> WaitingQueue = new();
-    private static readonly HashSet<string> WaitingConnectionIds = [];
-    private static readonly HashSet<string> ConnectedConnectionIds = [];
-
-    // Active sessions, looked up by either player's connection id.
-    private static readonly ConcurrentDictionary<string, GameSession> SessionsByConnection = new();
-
-    private static readonly object MatchmakingLock = new();
-
     public override async Task OnConnectedAsync()
     {
-        lock (MatchmakingLock)
-        {
-            ConnectedConnectionIds.Add(Context.ConnectionId);
-        }
+        SessionManager.Instance.RegisterConnection(Context.ConnectionId);
 
         await base.OnConnectedAsync();
     }
 
     public async Task FindMatch()
     {
-        string? opponentId = null;
-        GameSession? session = null;
-
-        lock (MatchmakingLock)
-        {
-            if (SessionsByConnection.ContainsKey(Context.ConnectionId))
-            {
-                return;
-            }
-
-            while (WaitingQueue.TryDequeue(out var waiting))
-            {
-                if (!WaitingConnectionIds.Remove(waiting) ||
-                    !ConnectedConnectionIds.Contains(waiting) ||
-                    waiting == Context.ConnectionId ||
-                    SessionsByConnection.ContainsKey(waiting))
-                {
-                    continue;
-                }
-
-                opponentId = waiting;
-                break;
-            }
-
-            if (opponentId is null)
-            {
-                if (WaitingConnectionIds.Add(Context.ConnectionId))
-                {
-                    WaitingQueue.Enqueue(Context.ConnectionId);
-                }
-            }
-            else
-            {
-                session = new GameSession(opponentId, Context.ConnectionId);
-                SessionsByConnection[opponentId] = session;
-                SessionsByConnection[Context.ConnectionId] = session;
-            }
-        }
-
-        if (opponentId is null || session is null)
+        var session = SessionManager.Instance.TryMatch(Context.ConnectionId);
+        if (session is null)
         {
             return; // waiting in queue
         }
+
+        var opponentId = session.OpponentOf(Context.ConnectionId);
 
         await Groups.AddToGroupAsync(opponentId, session.SessionId);
         await Groups.AddToGroupAsync(Context.ConnectionId, session.SessionId);
@@ -84,7 +34,7 @@ public class GameHub : Hub
 
     public async Task FireShot(FireShotRequest request)
     {
-        if (!SessionsByConnection.TryGetValue(Context.ConnectionId, out var session)) return;
+        if (!SessionManager.Instance.TryGetSession(Context.ConnectionId, out var session) || session is null) return;
 
         bool success = session.TryFireShot(Context.ConnectionId, request.X, request.Y);
         if (!success) return; // Invalid move
@@ -100,23 +50,9 @@ public class GameHub : Hub
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        GameSession? session = null;
-        string? opponentId = null;
-
-        lock (MatchmakingLock)
+        if (SessionManager.Instance.TryRemoveSession(Context.ConnectionId, out var session) && session is not null)
         {
-            ConnectedConnectionIds.Remove(Context.ConnectionId);
-            WaitingConnectionIds.Remove(Context.ConnectionId);
-
-            if (SessionsByConnection.TryRemove(Context.ConnectionId, out session))
-            {
-                opponentId = session.OpponentOf(Context.ConnectionId);
-                SessionsByConnection.TryRemove(opponentId, out _);
-            }
-        }
-
-        if (session is not null && opponentId is not null)
-        {
+            var opponentId = session.OpponentOf(Context.ConnectionId);
             await Clients.Client(opponentId)
                 .SendAsync("OpponentDisconnected", new OpponentDisconnectedMessage(session.SessionId));
         }
